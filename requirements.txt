@@ -1,0 +1,11 @@
+numpy
+pandas
+torch
+paho-mqtt
+pymongo
+cryptography
+boto3
+streamlit
+altair
+requests
+pytest

@@ -1,0 +1,247 @@
+[
+  {
+    "id": "tab",
+    "type": "tab",
+    "label": "GridGuard",
+    "disabled": false,
+    "info": ""
+  },
+  {
+    "id": "broker",
+    "type": "mqtt-broker",
+    "name": "Mosquitto",
+    "broker": "${MQTT_HOST}",
+    "port": "1883",
+    "clientid": "",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthPayload": "",
+    "birthMsg": {},
+    "closeTopic": "",
+    "closeQos": "0",
+    "closePayload": "",
+    "closeMsg": {},
+    "willTopic": "",
+    "willQos": "0",
+    "willPayload": "",
+    "willMsg": {},
+    "userProps": "",
+    "sessionExpiry": ""
+  },
+  {
+    "id": "mongo_client",
+    "type": "mongodb4-client",
+    "name": "GridGuard MongoDB",
+    "protocol": "mongodb",
+    "hostname": "",
+    "port": "",
+    "dbName": "gridguard",
+    "appName": "node-red",
+    "authSource": "",
+    "authMechanism": "DEFAULT",
+    "tls": false,
+    "tlsCAFile": "",
+    "tlsCertificateKeyFile": "",
+    "tlsInsecure": false,
+    "connectTimeoutMS": "30000",
+    "socketTimeoutMS": "0",
+    "minPoolSize": "0",
+    "maxPoolSize": "100",
+    "maxIdleTimeMS": "0",
+    "uri": "${MONGO_URI}",
+    "advanced": "{}",
+    "uriTabActive": "tab-uri-advanced"
+  },
+  {
+    "id": "readings_in",
+    "type": "mqtt in",
+    "z": "tab",
+    "name": "Meter readings",
+    "topic": "gridguard/meters/+/reading",
+    "qos": "0",
+    "datatype": "json",
+    "broker": "broker",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 130,
+    "y": 100,
+    "wires": [
+      [
+        "check"
+      ]
+    ]
+  },
+  {
+    "id": "check",
+    "type": "function",
+    "z": "tab",
+    "name": "Check reading",
+    "func": "const r = msg.payload;\nif (!r || !r.meter_id || !r.household_id || !r.ts || typeof r.power_w !== \"number\") {\n    node.status({fill: \"red\", shape: \"ring\", text: \"bad reading\"});\n    return null;\n}\nconst state = context.get(r.meter_id) || {last: null, repeats: 0, prev: null};\nconst hour = new Date(r.ts).getUTCHours();\nconst flags = [];\nif (state.last === r.power_w) state.repeats += 1; else state.repeats = 0;\nif (state.repeats >= 9) flags.push(\"stuck\");\nif (state.last !== null && state.prev !== null && state.last - Math.max(state.prev, r.power_w) > 4000) flags.push(\"spike\");\nif (r.power_w < -20 && hour < 4) flags.push(\"reverse\");\nif (Math.abs(r.power_w) > 23000) flags.push(\"implausible\");\nstate.prev = state.last;\nstate.last = r.power_w;\ncontext.set(r.meter_id, state);\nr.flags = flags;\nr.received_at = new Date().toISOString();\nnode.status({fill: flags.length ? \"yellow\" : \"green\", shape: \"dot\", text: r.meter_id + \" \" + r.power_w + \" W\"});\nconst reading = {payload: r};\nconst alert = flags.length ? {topic: \"gridguard/alerts/\" + r.meter_id, payload: {meter_id: r.meter_id, household_id: r.household_id, ts: r.ts, flags: flags, power_w: r.power_w}} : null;\nreturn [reading, alert];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 330,
+    "y": 100,
+    "wires": [
+      [
+        "save_reading"
+      ],
+      [
+        "save_alert",
+        "alert_out",
+        "alert_debug"
+      ]
+    ]
+  },
+  {
+    "id": "save_reading",
+    "type": "mongodb4",
+    "z": "tab",
+    "clientNode": "mongo_client",
+    "mode": "collection",
+    "collection": "readings",
+    "operation": "insertOne",
+    "output": "toArray",
+    "maxTimeMS": "0",
+    "handleDocId": false,
+    "name": "Save reading",
+    "x": 560,
+    "y": 60,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "save_alert",
+    "type": "mongodb4",
+    "z": "tab",
+    "clientNode": "mongo_client",
+    "mode": "collection",
+    "collection": "alerts",
+    "operation": "insertOne",
+    "output": "toArray",
+    "maxTimeMS": "0",
+    "handleDocId": false,
+    "name": "Save alert",
+    "x": 550,
+    "y": 120,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "alert_out",
+    "type": "mqtt out",
+    "z": "tab",
+    "name": "Publish alert",
+    "topic": "",
+    "qos": "1",
+    "retain": "false",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "broker",
+    "x": 550,
+    "y": 160,
+    "wires": []
+  },
+  {
+    "id": "alert_debug",
+    "type": "debug",
+    "z": "tab",
+    "name": "Alerts",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 540,
+    "y": 200,
+    "wires": []
+  },
+  {
+    "id": "control_in",
+    "type": "http in",
+    "z": "tab",
+    "name": "POST /control",
+    "url": "/control",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 140,
+    "y": 280,
+    "wires": [
+      [
+        "control"
+      ]
+    ]
+  },
+  {
+    "id": "control",
+    "type": "function",
+    "z": "tab",
+    "name": "Check command",
+    "func": "const body = msg.payload || {};\nconst modes = [null, \"stuck\", \"spike\", \"reverse\", \"ev\", \"solar\"];\nconst mode = body.mode === undefined ? null : body.mode;\nif (!/^(MTR-\\d{2}|all)$/.test(body.meter_id || \"\") || !modes.includes(mode)) {\n    msg.statusCode = 400;\n    msg.payload = {error: \"send meter_id (MTR-00 or all) and mode: null, stuck, spike, reverse, ev or solar\"};\n    return [null, msg];\n}\nconst command = {topic: \"gridguard/control/\" + body.meter_id, payload: {mode: mode}};\nmsg.statusCode = 202;\nmsg.payload = {sent: command.payload, to: command.topic};\nreturn [command, msg];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 330,
+    "y": 280,
+    "wires": [
+      [
+        "control_out"
+      ],
+      [
+        "control_reply"
+      ]
+    ]
+  },
+  {
+    "id": "control_out",
+    "type": "mqtt out",
+    "z": "tab",
+    "name": "Send to meter",
+    "topic": "",
+    "qos": "1",
+    "retain": "false",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "broker",
+    "x": 560,
+    "y": 260,
+    "wires": []
+  },
+  {
+    "id": "control_reply",
+    "type": "http response",
+    "z": "tab",
+    "name": "Reply",
+    "statusCode": "",
+    "headers": {},
+    "x": 540,
+    "y": 300,
+    "wires": []
+  }
+]
