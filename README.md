@@ -30,7 +30,8 @@ Five homes have smart meters. **Node-RED** collects their readings over **MQTT**
 | `node-red/package.json` | Node-RED and the three add-ons it needs |
 | `notebooks/1_iot_data_analysis.ipynb` | graphs of the data Node-RED stored in MongoDB (and ThingSpeak) |
 | `notebooks/2_gridguard_federated_learning.ipynb` | the GridGuard federated-learning experiment from the synopsis |
-| `docs/` | explanations of each part, setup for ThingSpeak, demo guide, screenshots |
+| `docs/` | explanations of each part, setup for ThingSpeak, demo guide, pitch guide, screenshots |
+| `report/` | project report (`GridGuard_Project_Report.pdf`, LaTeX source and figures) |
 
 Both notebooks are saved **with their outputs**, so they can be opened and read on GitHub or in VS Code without running anything.
 
@@ -95,3 +96,5 @@ GridGuard identified the right cause for 97% of updates, blocked every attack, q
 - [docs/3-thingspeak.md](docs/3-thingspeak.md): creating the channel and connecting it
 - [docs/4-notebooks.md](docs/4-notebooks.md): what each notebook shows
 - [docs/demo-guide.md](docs/demo-guide.md): what to show the teacher, step by step
+- [docs/pitch-guide.md](docs/pitch-guide.md): full presentation script, every concept explained in depth, viva questions (Hinglish)
+- [report/GridGuard_Project_Report.pdf](report/GridGuard_Project_Report.pdf): the project report
