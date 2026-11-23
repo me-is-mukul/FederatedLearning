@@ -1,76 +1,104 @@
-# GridGuard
-
-**Smart-meter AI that can tell an attacker from a broken meter.**
+# GridGuard: smart-meter monitoring with Node-RED, MongoDB and ThingSpeak
 
 IoT Analytics Lab mini project, JIIT. Mukul Aggarwal (2401030239) and Shivam Diwaker (2401030245).
 
-Eight homes train one AI model together to work out how much the fridge, kettle and washing machine use, from nothing but the total smart-meter reading. Their raw data never leaves the home; only model updates are shared (*federated learning*).
+Five homes have smart meters. **Node-RED** collects their readings over **MQTT**, checks every reading, stores everything in **MongoDB**, uploads a summary to **ThingSpeak**, and shows a live dashboard. It also decides, every hour, whether a strange meter is **broken** (stuck, spiking, wired backwards) or whether the home **genuinely changed** (an EV, solar panels). That distinction is the core idea of our GridGuard synopsis. **Jupyter notebooks** analyse the stored data and demonstrate the federated-learning part with graphs.
 
-The trouble is that some updates look wrong, and there are three very different reasons why:
+## Architecture
 
-| Reason | Example | What GridGuard does |
-|---|---|---|
-| Attack | a home sends a reversed or blown-up update on purpose | **rejects** it |
-| Broken meter | the meter is stuck, spiking, or wired backwards | **quarantines** it (no blame) |
-| Real change | the family bought an EV or installed solar panels | **accepts** it at half weight |
+```
+                 ┌──────────────────────────── Node-RED (node-red/flows.json) ─────────────────────────────┐
+                 │                                                                                         │
+ Tab 1           │  5 simulated smart meters ──MQTT──▶ built-in MQTT broker (Aedes, port 1883)               │
+ Smart meters    │        ▲                                   │                                            │
+                 │        └── commands (gridguard/control/#)  ▼                                            │
+ Tab 2           │                                  Check reading ──▶ MongoDB: readings, alerts           │
+ Ingest, detect  │                                        └──▶ Hourly diagnosis ──▶ MongoDB: diagnosis     │
+ Tab 3           │                                        └──▶ 20 s summary ──HTTP──▶ ThingSpeak channel   │
+ Tab 4           │                                        └──▶ Dashboard 2.0 (charts, gauge, buttons)     │
+                 └─────────────────────────────────────────────────────────────────────────────────────────┘
+                                                   │
+                         Jupyter notebooks ◀───────┘  (read MongoDB and ThingSpeak, draw graphs)
+```
 
-Normal federated learning (FedAvg) treats them all the same and its model falls apart. GridGuard checks the evidence first.
-
-## What's in the folder
-
-| File | What it is |
+| Tool | What it does here |
 |---|---|
-| `app.py` | the interactive dashboard: start here |
-| `gridguard.py` | the engine: simulated homes, AI model, federated training, cause detection, signatures, live meters |
-| `node-red/` | Node-RED flow (MQTT to MongoDB with alerts) and its Docker setup |
-| `docker-compose.yml` | starts Mosquitto (MQTT broker) and Node-RED |
-| `test_gridguard.py` | automatic checks |
-| `docs/how-it-works.md` | every idea explained simply |
-| `docs/demo-guide.md` | a step-by-step script for the presentation |
+| **Node-RED** | meter simulation, MQTT broker, validation, fault detection, hourly diagnosis, MongoDB writes, ThingSpeak upload, dashboard |
+| **MQTT** | how meters send readings and receive commands (`gridguard/meters/<id>/reading`, `gridguard/control/<id>`) |
+| **MongoDB** | stores raw readings, alerts and hourly diagnoses (database `gridguard_iot`) |
+| **ThingSpeak** | cloud channel with 8 fields: power of each home, total load, alert count, faulty meters |
+| **Jupyter (Python)** | analysis and graphs only |
+
+## Folder
+
+| Path | What it is |
+|---|---|
+| `node-red/flows.json` | the whole IoT application (4 tabs) |
+| `node-red/package.json` | Node-RED and the three add-ons it needs |
+| `notebooks/1_iot_data_analysis.ipynb` | graphs of the data Node-RED stored in MongoDB (and ThingSpeak) |
+| `notebooks/2_gridguard_federated_learning.ipynb` | the GridGuard federated-learning experiment from the synopsis |
+| `docs/` | explanations of each part, setup for ThingSpeak, demo guide, screenshots |
+
+Both notebooks are saved **with their outputs**, so they can be opened and read on GitHub or in VS Code without running anything.
 
 ## Setup (once)
 
-You need Python 3.11+, Docker Desktop and MongoDB running on your computer.
+You need **Node.js 18+**, **MongoDB** running on `localhost:27017` (Windows service or MongoDB Compass install), and **Python 3.11+** for the notebooks.
 
 ```powershell
+cd node-red
+npm install
+cd ..
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-If PowerShell refuses to run `Activate.ps1`, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
+For ThingSpeak, create a free channel and paste its Write API Key into Node-RED. This is optional; everything else works without it. See [docs/3-thingspeak.md](docs/3-thingspeak.md).
 
-## Run it
-
-```powershell
-streamlit run app.py
-```
-
-The dashboard opens at http://localhost:8501 with four tabs:
-
-1. **Explore a home**: see what a smart meter records, add a fault or an EV, and watch the evidence change.
-2. **Train the federation**: pick what happens in each home, press *Train*, and watch FedAvg and GridGuard learn side by side, live.
-3. **Audit chain**: secretly edit a past decision and watch the hash chain catch it.
-4. **Live meters**: real MQTT meters going through Node-RED into MongoDB. Break a meter with one click.
-
-For the live tab, open two more terminals (with the venv activated):
+## Run
 
 ```powershell
-docker compose up -d --build
-python gridguard.py meters --start-hour 0
+cd node-red
+npm start
 ```
 
-Without the dashboard, `python gridguard.py train` runs the default experiment in the terminal. `pytest` runs the checks.
-
-## Result (default setup, 10 rounds)
-
-| | Model error at the end |
+| Open | What you see |
 |---|---|
-| FedAvg | 120.6 W (and it jumps between 25 and 204 W) |
-| **GridGuard** | **20.0 W** |
+| http://localhost:1880 | the Node-RED flows (4 tabs) |
+| http://localhost:1880/dashboard | live dashboard: power chart, total load, buttons to break a meter, diagnosis and alert tables |
 
-GridGuard identified the right cause for 96% of updates. It blocked 100% of attacks, quarantined 100% of faulty-meter updates and wrongly excluded 2% of honest updates. The audit chain stayed intact.
+One real second is one minute of meter time, so a full simulated day takes 24 minutes. While it runs, use the dashboard buttons (for example, pick **MTR-01** and press **Reversed**) and watch the alerts and the hourly diagnosis react.
 
-## Tech used
+Then open the notebooks (`jupyter notebook notebooks`, or open them in VS Code) and run all cells.
 
-Python (NumPy, Pandas, PyTorch), MQTT (Mosquitto, paho-mqtt), Node-RED, MongoDB, cryptography (SHA-256, Ed25519), Streamlit and Altair, Docker, and AWS S3 for saving results.
+## Screenshots
+
+Live dashboard (meter time around 03:00):
+
+![dashboard at night](docs/images/dashboard-night.png)
+
+Live dashboard in the evening (EV charging on MTR-03):
+
+![dashboard in the evening](docs/images/dashboard-evening.png)
+
+## Results
+
+**IoT part (notebook 1, one recorded day).** Node-RED flagged the reversed, stuck and spiking meters as they happened. Its hourly diagnosis called them *meter fault*, while the EV and solar homes were called *genuine change*, not faults.
+
+**GridGuard federated learning (notebook 2, 8 homes, 8 rounds).**
+
+| | Error at the end | Worst round |
+|---|---|---|
+| FedAvg (normal averaging) | 37.2 W | 316.0 W |
+| **GridGuard** | **23.4 W** | 42.5 W |
+
+GridGuard identified the right cause for 97% of updates, blocked every attack, quarantined every faulty meter and excluded no honest home. The signature check caught the tampered updates, and the audit chain caught a secret edit.
+
+## More
+
+- [docs/1-node-red.md](docs/1-node-red.md): every tab and node explained
+- [docs/2-mongodb.md](docs/2-mongodb.md): what is stored and how to look at it
+- [docs/3-thingspeak.md](docs/3-thingspeak.md): creating the channel and connecting it
+- [docs/4-notebooks.md](docs/4-notebooks.md): what each notebook shows
+- [docs/demo-guide.md](docs/demo-guide.md): what to show the teacher, step by step

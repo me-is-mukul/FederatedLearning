@@ -1,0 +1,15 @@
+{
+  "name": "gridguard-node-red",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GridGuard IoT flows: simulated smart meters, MQTT broker, MongoDB storage, ThingSpeak upload and live dashboard",
+  "scripts": {
+    "start": "node-red --userDir . --port 1880 flows.json"
+  },
+  "dependencies": {
+    "node-red": "4.0.9",
+    "node-red-contrib-aedes": "1.4.0",
+    "node-red-contrib-mongodb4": "3.4.0",
+    "@flowfuse/node-red-dashboard": "1.37.0"
+  }
+}

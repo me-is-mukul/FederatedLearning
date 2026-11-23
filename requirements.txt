@@ -1,11 +1,8 @@
 numpy
 pandas
-torch
-paho-mqtt
+matplotlib
 pymongo
-cryptography
-boto3
-streamlit
-altair
 requests
-pytest
+torch
+cryptography
+notebook

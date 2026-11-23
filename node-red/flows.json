@@ -1,247 +1,1362 @@
 [
-  {
-    "id": "tab",
-    "type": "tab",
-    "label": "GridGuard",
-    "disabled": false,
-    "info": ""
-  },
-  {
-    "id": "broker",
-    "type": "mqtt-broker",
-    "name": "Mosquitto",
-    "broker": "${MQTT_HOST}",
-    "port": "1883",
-    "clientid": "",
-    "autoConnect": true,
-    "usetls": false,
-    "protocolVersion": "4",
-    "keepalive": "60",
-    "cleansession": true,
-    "autoUnsubscribe": true,
-    "birthTopic": "",
-    "birthQos": "0",
-    "birthPayload": "",
-    "birthMsg": {},
-    "closeTopic": "",
-    "closeQos": "0",
-    "closePayload": "",
-    "closeMsg": {},
-    "willTopic": "",
-    "willQos": "0",
-    "willPayload": "",
-    "willMsg": {},
-    "userProps": "",
-    "sessionExpiry": ""
-  },
-  {
-    "id": "mongo_client",
-    "type": "mongodb4-client",
-    "name": "GridGuard MongoDB",
-    "protocol": "mongodb",
-    "hostname": "",
-    "port": "",
-    "dbName": "gridguard",
-    "appName": "node-red",
-    "authSource": "",
-    "authMechanism": "DEFAULT",
-    "tls": false,
-    "tlsCAFile": "",
-    "tlsCertificateKeyFile": "",
-    "tlsInsecure": false,
-    "connectTimeoutMS": "30000",
-    "socketTimeoutMS": "0",
-    "minPoolSize": "0",
-    "maxPoolSize": "100",
-    "maxIdleTimeMS": "0",
-    "uri": "${MONGO_URI}",
-    "advanced": "{}",
-    "uriTabActive": "tab-uri-advanced"
-  },
-  {
-    "id": "readings_in",
-    "type": "mqtt in",
-    "z": "tab",
-    "name": "Meter readings",
-    "topic": "gridguard/meters/+/reading",
-    "qos": "0",
-    "datatype": "json",
-    "broker": "broker",
-    "nl": false,
-    "rap": true,
-    "rh": 0,
-    "inputs": 0,
-    "x": 130,
-    "y": 100,
-    "wires": [
-      [
-        "check"
-      ]
-    ]
-  },
-  {
-    "id": "check",
-    "type": "function",
-    "z": "tab",
-    "name": "Check reading",
-    "func": "const r = msg.payload;\nif (!r || !r.meter_id || !r.household_id || !r.ts || typeof r.power_w !== \"number\") {\n    node.status({fill: \"red\", shape: \"ring\", text: \"bad reading\"});\n    return null;\n}\nconst state = context.get(r.meter_id) || {last: null, repeats: 0, prev: null};\nconst hour = new Date(r.ts).getUTCHours();\nconst flags = [];\nif (state.last === r.power_w) state.repeats += 1; else state.repeats = 0;\nif (state.repeats >= 9) flags.push(\"stuck\");\nif (state.last !== null && state.prev !== null && state.last - Math.max(state.prev, r.power_w) > 4000) flags.push(\"spike\");\nif (r.power_w < -20 && hour < 4) flags.push(\"reverse\");\nif (Math.abs(r.power_w) > 23000) flags.push(\"implausible\");\nstate.prev = state.last;\nstate.last = r.power_w;\ncontext.set(r.meter_id, state);\nr.flags = flags;\nr.received_at = new Date().toISOString();\nnode.status({fill: flags.length ? \"yellow\" : \"green\", shape: \"dot\", text: r.meter_id + \" \" + r.power_w + \" W\"});\nconst reading = {payload: r};\nconst alert = flags.length ? {topic: \"gridguard/alerts/\" + r.meter_id, payload: {meter_id: r.meter_id, household_id: r.household_id, ts: r.ts, flags: flags, power_w: r.power_w}} : null;\nreturn [reading, alert];\n",
-    "outputs": 2,
-    "timeout": 0,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 330,
-    "y": 100,
-    "wires": [
-      [
-        "save_reading"
-      ],
-      [
-        "save_alert",
-        "alert_out",
-        "alert_debug"
-      ]
-    ]
-  },
-  {
-    "id": "save_reading",
-    "type": "mongodb4",
-    "z": "tab",
-    "clientNode": "mongo_client",
-    "mode": "collection",
-    "collection": "readings",
-    "operation": "insertOne",
-    "output": "toArray",
-    "maxTimeMS": "0",
-    "handleDocId": false,
-    "name": "Save reading",
-    "x": 560,
-    "y": 60,
-    "wires": [
-      []
-    ]
-  },
-  {
-    "id": "save_alert",
-    "type": "mongodb4",
-    "z": "tab",
-    "clientNode": "mongo_client",
-    "mode": "collection",
-    "collection": "alerts",
-    "operation": "insertOne",
-    "output": "toArray",
-    "maxTimeMS": "0",
-    "handleDocId": false,
-    "name": "Save alert",
-    "x": 550,
-    "y": 120,
-    "wires": [
-      []
-    ]
-  },
-  {
-    "id": "alert_out",
-    "type": "mqtt out",
-    "z": "tab",
-    "name": "Publish alert",
-    "topic": "",
-    "qos": "1",
-    "retain": "false",
-    "respTopic": "",
-    "contentType": "",
-    "userProps": "",
-    "correl": "",
-    "expiry": "",
-    "broker": "broker",
-    "x": 550,
-    "y": 160,
-    "wires": []
-  },
-  {
-    "id": "alert_debug",
-    "type": "debug",
-    "z": "tab",
-    "name": "Alerts",
-    "active": true,
-    "tosidebar": true,
-    "console": false,
-    "tostatus": false,
-    "complete": "payload",
-    "targetType": "msg",
-    "statusVal": "",
-    "statusType": "auto",
-    "x": 540,
-    "y": 200,
-    "wires": []
-  },
-  {
-    "id": "control_in",
-    "type": "http in",
-    "z": "tab",
-    "name": "POST /control",
-    "url": "/control",
-    "method": "post",
-    "upload": false,
-    "swaggerDoc": "",
-    "x": 140,
-    "y": 280,
-    "wires": [
-      [
-        "control"
-      ]
-    ]
-  },
-  {
-    "id": "control",
-    "type": "function",
-    "z": "tab",
-    "name": "Check command",
-    "func": "const body = msg.payload || {};\nconst modes = [null, \"stuck\", \"spike\", \"reverse\", \"ev\", \"solar\"];\nconst mode = body.mode === undefined ? null : body.mode;\nif (!/^(MTR-\\d{2}|all)$/.test(body.meter_id || \"\") || !modes.includes(mode)) {\n    msg.statusCode = 400;\n    msg.payload = {error: \"send meter_id (MTR-00 or all) and mode: null, stuck, spike, reverse, ev or solar\"};\n    return [null, msg];\n}\nconst command = {topic: \"gridguard/control/\" + body.meter_id, payload: {mode: mode}};\nmsg.statusCode = 202;\nmsg.payload = {sent: command.payload, to: command.topic};\nreturn [command, msg];\n",
-    "outputs": 2,
-    "timeout": 0,
-    "noerr": 0,
-    "initialize": "",
-    "finalize": "",
-    "libs": [],
-    "x": 330,
-    "y": 280,
-    "wires": [
-      [
-        "control_out"
-      ],
-      [
-        "control_reply"
-      ]
-    ]
-  },
-  {
-    "id": "control_out",
-    "type": "mqtt out",
-    "z": "tab",
-    "name": "Send to meter",
-    "topic": "",
-    "qos": "1",
-    "retain": "false",
-    "respTopic": "",
-    "contentType": "",
-    "userProps": "",
-    "correl": "",
-    "expiry": "",
-    "broker": "broker",
-    "x": 560,
-    "y": 260,
-    "wires": []
-  },
-  {
-    "id": "control_reply",
-    "type": "http response",
-    "z": "tab",
-    "name": "Reply",
-    "statusCode": "",
-    "headers": {},
-    "x": 540,
-    "y": 300,
-    "wires": []
-  }
+    {
+        "id": "tab_sim",
+        "type": "tab",
+        "label": "1. Smart meters",
+        "disabled": false,
+        "info": "Five simulated smart meters. One real second is one meter minute, so a full day takes 24 minutes. Each meter publishes its reading over MQTT."
+    },
+    {
+        "id": "tab_ingest",
+        "type": "tab",
+        "label": "2. Ingest, detect, store",
+        "disabled": false,
+        "info": "Reads the meters over MQTT, flags bad readings, works out an hourly diagnosis and stores everything in MongoDB."
+    },
+    {
+        "id": "tab_cloud",
+        "type": "tab",
+        "label": "3. ThingSpeak",
+        "disabled": false,
+        "info": "Every 20 seconds, sends average power per meter, total load, alert count and flagged meters to a ThingSpeak channel. Put your Write API Key in this tab's Environment Variables (double-click the tab name).",
+        "env": [
+            {
+                "name": "THINGSPEAK_WRITE_KEY",
+                "value": "",
+                "type": "str"
+            }
+        ]
+    },
+    {
+        "id": "tab_ui",
+        "type": "tab",
+        "label": "4. Dashboard",
+        "disabled": false,
+        "info": "Live dashboard at http://localhost:1880/dashboard"
+    },
+    {
+        "id": "broker",
+        "type": "mqtt-broker",
+        "name": "Built-in broker",
+        "broker": "localhost",
+        "port": "1883",
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "mongo_client",
+        "type": "mongodb4-client",
+        "name": "GridGuard MongoDB",
+        "protocol": "mongodb",
+        "hostname": "",
+        "port": "",
+        "dbName": "gridguard_iot",
+        "appName": "node-red",
+        "authSource": "",
+        "authMechanism": "DEFAULT",
+        "tls": false,
+        "tlsCAFile": "",
+        "tlsCertificateKeyFile": "",
+        "tlsInsecure": false,
+        "connectTimeoutMS": "30000",
+        "socketTimeoutMS": "0",
+        "minPoolSize": "0",
+        "maxPoolSize": "100",
+        "maxIdleTimeMS": "0",
+        "uri": "mongodb://localhost:27017",
+        "advanced": "{}",
+        "uriTabActive": "tab-uri-advanced"
+    },
+    {
+        "id": "ui_base",
+        "type": "ui-base",
+        "name": "GridGuard",
+        "path": "/dashboard",
+        "appIcon": "",
+        "includeClientData": true,
+        "acceptsClientConfig": [
+            "ui-notification",
+            "ui-control"
+        ],
+        "showPathInSidebar": false,
+        "headerContent": "page",
+        "navigationStyle": "default",
+        "titleBarStyle": "default",
+        "showReconnectNotification": true,
+        "notificationDisplayTime": 1,
+        "showDisconnectNotification": true,
+        "allowInstall": false
+    },
+    {
+        "id": "ui_theme",
+        "type": "ui-theme",
+        "name": "GridGuard theme",
+        "colors": {
+            "surface": "#0d74ce",
+            "primary": "#0d74ce",
+            "bgPage": "#f4f6f9",
+            "groupBg": "#ffffff",
+            "groupOutline": "#d9d9e0"
+        },
+        "sizes": {
+            "density": "default",
+            "pagePadding": "12px",
+            "groupGap": "12px",
+            "groupBorderRadius": "8px",
+            "widgetGap": "12px"
+        }
+    },
+    {
+        "id": "ui_page",
+        "type": "ui-page",
+        "name": "GridGuard: smart meter monitor",
+        "ui": "ui_base",
+        "path": "/gridguard",
+        "icon": "flash",
+        "layout": "grid",
+        "theme": "ui_theme",
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": 0,
+                "cols": 3
+            },
+            {
+                "name": "Tablet",
+                "px": 576,
+                "cols": 6
+            },
+            {
+                "name": "Small Desktop",
+                "px": 768,
+                "cols": 9
+            },
+            {
+                "name": "Desktop",
+                "px": 1024,
+                "cols": 12
+            }
+        ],
+        "order": 1,
+        "className": "",
+        "visible": "true",
+        "disabled": "false"
+    },
+    {
+        "id": "grp_live",
+        "type": "ui-group",
+        "name": "Live power of every home (W)",
+        "page": "ui_page",
+        "width": "9",
+        "height": "1",
+        "order": 1,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "grp_total",
+        "type": "ui-group",
+        "name": "Whole neighbourhood",
+        "page": "ui_page",
+        "width": "3",
+        "height": "1",
+        "order": 2,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "grp_control",
+        "type": "ui-group",
+        "name": "Break a meter or change a home",
+        "page": "ui_page",
+        "width": "6",
+        "height": "1",
+        "order": 3,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "grp_diag",
+        "type": "ui-group",
+        "name": "Hourly diagnosis (edge analytics)",
+        "page": "ui_page",
+        "width": "6",
+        "height": "1",
+        "order": 4,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "grp_alerts",
+        "type": "ui-group",
+        "name": "Latest alerts",
+        "page": "ui_page",
+        "width": "12",
+        "height": "1",
+        "order": 5,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "mqtt_broker_node",
+        "type": "aedes broker",
+        "z": "tab_sim",
+        "name": "MQTT broker on port 1883",
+        "mqtt_port": 1883,
+        "mqtt_ws_bind": "port",
+        "mqtt_ws_port": null,
+        "mqtt_ws_path": "",
+        "cert": "",
+        "key": "",
+        "ca": "",
+        "certname": "",
+        "keyname": "",
+        "caname": "",
+        "persistence_bind": "memory",
+        "dburl": "",
+        "persist_to_file": false,
+        "usetls": false,
+        "x": 340,
+        "y": 160,
+        "wires": [
+            [],
+            []
+        ]
+    },
+    {
+        "id": "tick",
+        "type": "inject",
+        "z": "tab_sim",
+        "name": "Every second",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "20",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 310,
+        "y": 220,
+        "wires": [
+            [
+                "simulate"
+            ]
+        ]
+    },
+    {
+        "id": "simulate",
+        "type": "function",
+        "z": "tab_sim",
+        "name": "Simulate 5 meters",
+        "func": "const METERS = [\"MTR-00\", \"MTR-01\", \"MTR-02\", \"MTR-03\", \"MTR-04\"];\nlet clock = context.get(\"clock\") || 0;\nlet session = context.get(\"session\");\nif (!session) { session = new Date().toISOString(); context.set(\"session\", session); }\nlet start = context.get(\"start\");\nif (!start) {\n    const today = new Date();\n    start = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());\n    context.set(\"start\", start);\n}\nlet homes = context.get(\"homes\");\nif (!homes) {\n    homes = METERS.map((id, i) => ({\n        standby: 50 + 25 * i,\n        evening: 120 + 40 * i,\n        morning: 60 + 20 * i,\n        fridgePower: 85 + 10 * i,\n        fridgeOn: false,\n        fridgeLeft: 5 + 7 * i,\n        kettleLeft: 0,\n        washerLeft: 0,\n        held: null\n    }));\n}\nconst modes = global.get(\"modes\") || {};\nconst minute = clock % 1440;\nconst time = new Date(start + clock * 60000);\nconst messages = [];\nhomes.forEach((h, i) => {\n    const id = METERS[i];\n    let p = h.standby * (1 + 0.05 * Math.sin(2 * Math.PI * minute / 1440));\n    if (minute > 1050 && minute < 1380) p += h.evening;\n    if (minute > 390 && minute < 510) p += h.morning;\n    h.fridgeLeft -= 1;\n    if (h.fridgeLeft <= 0) {\n        h.fridgeOn = !h.fridgeOn;\n        h.fridgeLeft = h.fridgeOn ? 15 + Math.random() * 7 : 30 + Math.random() * 15;\n    }\n    if (h.fridgeOn) p += h.fridgePower;\n    const kettleTime = (minute >= 380 && minute < 540) || (minute >= 960 && minute < 1320);\n    if (h.kettleLeft > 0) { p += 2500; h.kettleLeft -= 1; }\n    else if (kettleTime && Math.random() < 0.012) h.kettleLeft = 3;\n    if (h.washerLeft > 0) { p += h.washerLeft > 50 ? 2000 : (h.washerLeft > 10 ? 220 : 500); h.washerLeft -= 1; }\n    else if (minute >= 480 && minute < 1200 && Math.random() < 0.0008) h.washerLeft = 65;\n    p += (Math.random() - 0.5) * 4;\n    const mode = modes[id] || \"normal\";\n    if (mode === \"ev\" && minute >= 1140 && minute < 1380) p += 7000;\n    if (mode === \"solar\") p -= 3000 * Math.max(0, Math.sin(Math.PI * (minute - 390) / 720));\n    if (mode === \"spike\" && Math.random() < 0.05) p += 5000 + Math.random() * 10000;\n    if (mode === \"reverse\") p = -p;\n    if (mode === \"stuck\") { if (h.held === null) h.held = p; p = h.held; } else h.held = null;\n    messages.push({\n        topic: \"gridguard/meters/\" + id + \"/reading\",\n        payload: {\n            meter_id: id,\n            household_id: \"house-\" + id.slice(4),\n            session: session,\n            ts: time.toISOString(),\n            power_w: Math.round(p * 10) / 10,\n            voltage_v: Math.round((230 + (Math.random() - 0.5) * 4) * 10) / 10\n        }\n    });\n});\ncontext.set(\"homes\", homes);\ncontext.set(\"clock\", clock + 1);\nglobal.set(\"simTime\", time.toISOString().slice(0, 16).replace(\"T\", \" \"));\nnode.status({fill: \"green\", shape: \"dot\", text: \"meter time \" + time.toISOString().slice(11, 16)});\nreturn [messages];\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 220,
+        "wires": [
+            [
+                "publish_reading"
+            ]
+        ]
+    },
+    {
+        "id": "publish_reading",
+        "type": "mqtt out",
+        "z": "tab_sim",
+        "name": "Publish reading",
+        "topic": "",
+        "qos": "0",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "broker",
+        "x": 740,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "control_in",
+        "type": "mqtt in",
+        "z": "tab_sim",
+        "name": "Control commands",
+        "topic": "gridguard/control/+",
+        "qos": "1",
+        "datatype": "auto-detect",
+        "broker": "broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 320,
+        "y": 300,
+        "wires": [
+            [
+                "mqtt_mode"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_mode",
+        "type": "function",
+        "z": "tab_sim",
+        "name": "Change meter mode",
+        "func": "const meter = msg.topic.split(\"/\").pop();\nconst mode = typeof msg.payload === \"string\" ? msg.payload : (msg.payload && msg.payload.mode) || \"normal\";\nconst allowed = [\"normal\", \"stuck\", \"spike\", \"reverse\", \"ev\", \"solar\"];\nif (!allowed.includes(mode)) return null;\nconst modes = global.get(\"modes\") || {};\n(meter === \"all\" ? [\"MTR-00\", \"MTR-01\", \"MTR-02\", \"MTR-03\", \"MTR-04\"] : [meter]).forEach(id => { modes[id] = mode; });\nglobal.set(\"modes\", modes);\nnode.status({fill: \"blue\", shape: \"dot\", text: meter + \" -> \" + mode});\nreturn null;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 540,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "readings_in",
+        "type": "mqtt in",
+        "z": "tab_ingest",
+        "name": "Meter readings",
+        "topic": "gridguard/meters/+/reading",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "broker",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 110,
+        "y": 160,
+        "wires": [
+            [
+                "check"
+            ]
+        ]
+    },
+    {
+        "id": "check",
+        "type": "function",
+        "z": "tab_ingest",
+        "name": "Check reading",
+        "func": "const r = msg.payload;\nif (!r || !r.meter_id || !r.ts || typeof r.power_w !== \"number\") {\n    node.status({fill: \"red\", shape: \"ring\", text: \"bad reading dropped\"});\n    return null;\n}\nconst s = context.get(r.meter_id) || {before: null, pending: null, repeats: 0};\nconst p = s.pending;\ns.pending = r;\nif (!p) {\n    context.set(r.meter_id, s);\n    return null;\n}\nconst flags = [];\nif (s.before !== null && p.power_w === s.before) s.repeats += 1; else s.repeats = 0;\nif (s.repeats >= 9) flags.push(\"stuck\");\nif (s.before !== null && p.power_w - Math.max(s.before, r.power_w) > 4000) flags.push(\"spike\");\nif (p.power_w < -20 && new Date(p.ts).getUTCHours() < 4) flags.push(\"reverse\");\nif (Math.abs(p.power_w) > 23000) flags.push(\"implausible\");\ns.before = p.power_w;\ncontext.set(r.meter_id, s);\np.flags = flags;\np.received_at = new Date().toISOString();\nconst alert = flags.length ? {payload: {meter_id: p.meter_id, session: p.session, ts: p.ts, problem: flags.join(\", \"), power_w: p.power_w}} : null;\nreturn [{payload: p}, alert];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 310,
+        "y": 160,
+        "wires": [
+            [
+                "save_reading",
+                "diagnose",
+                "to_cloud",
+                "to_ui"
+            ],
+            [
+                "save_alert",
+                "publish_alert",
+                "to_ui_alert"
+            ]
+        ]
+    },
+    {
+        "id": "save_reading",
+        "type": "mongodb4",
+        "z": "tab_ingest",
+        "clientNode": "mongo_client",
+        "mode": "collection",
+        "collection": "readings",
+        "operation": "insertOne",
+        "output": "toArray",
+        "maxTimeMS": "0",
+        "handleDocId": false,
+        "name": "Save reading",
+        "x": 580,
+        "y": 100,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "diagnose",
+        "type": "function",
+        "z": "tab_ingest",
+        "name": "Hourly diagnosis",
+        "func": "const r = msg.payload;\nconst buffers = context.get(\"buffers\") || {};\nconst b = buffers[r.meter_id] || [];\nb.push(r);\nif (b.length < 60) {\n    buffers[r.meter_id] = b;\n    context.set(\"buffers\", buffers);\n    return null;\n}\nbuffers[r.meter_id] = [];\ncontext.set(\"buffers\", buffers);\nconst power = b.map(x => x.power_w);\nconst hour = new Date(b[0].ts).getUTCHours();\nconst sunUp = hour >= 6 && hour < 19;\nconst negative = power.filter(p => p < -20).length / power.length;\nconst flat = b.filter(x => x.flags.includes(\"stuck\")).length / b.length;\nconst spikes = b.filter(x => x.flags.includes(\"spike\")).length;\nconst heavy = power.filter(p => p > 5000).length;\nconst reversed = global.get(\"reversedMeters\") || {};\nif (!sunUp) reversed[r.meter_id] = negative > 0.5;\nglobal.set(\"reversedMeters\", reversed);\nlet diagnosis = \"normal\";\nlet reason = \"nothing unusual\";\nif (flat > 0.15) { diagnosis = \"meter fault\"; reason = \"reading frozen\"; }\nelse if (spikes >= 1) { diagnosis = \"meter fault\"; reason = spikes + \" impossible spikes\"; }\nelse if (negative > 0.5 && !sunUp) { diagnosis = \"meter fault\"; reason = \"negative power with no sun (wired backwards)\"; }\nelse if (negative > 0.2 && reversed[r.meter_id]) { diagnosis = \"meter fault\"; reason = \"negative day and night (wired backwards)\"; }\nelse if (negative > 0.2) { diagnosis = \"genuine change\"; reason = \"exporting in daylight (solar panels?)\"; }\nelse if (heavy >= 30) { diagnosis = \"genuine change\"; reason = heavy + \" minutes above 5 kW (EV charging?)\"; }\nconst avg = power.reduce((a, p) => a + p, 0) / power.length;\nconst doc = {\n    meter_id: r.meter_id,\n    session: r.session,\n    hour_start: b[0].ts,\n    avg_w: Math.round(avg),\n    max_w: Math.round(Math.max(...power)),\n    min_w: Math.round(Math.min(...power)),\n    energy_kwh: Math.round(avg / 1000 * 1000) / 1000,\n    frozen_share: Math.round(flat * 100) / 100,\n    spikes: spikes,\n    negative_share: Math.round(negative * 100) / 100,\n    heavy_minutes: heavy,\n    diagnosis: diagnosis,\n    reason: reason\n};\nconst latest = global.get(\"diagnosis\") || {};\nlatest[r.meter_id] = doc;\nglobal.set(\"diagnosis\", latest);\nnode.status({fill: diagnosis === \"normal\" ? \"green\" : (diagnosis === \"meter fault\" ? \"red\" : \"yellow\"), shape: \"dot\", text: r.meter_id + \": \" + diagnosis});\nreturn {payload: doc};\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 570,
+        "y": 160,
+        "wires": [
+            [
+                "save_diagnosis",
+                "to_ui_diag"
+            ]
+        ]
+    },
+    {
+        "id": "save_diagnosis",
+        "type": "mongodb4",
+        "z": "tab_ingest",
+        "clientNode": "mongo_client",
+        "mode": "collection",
+        "collection": "diagnosis",
+        "operation": "insertOne",
+        "output": "toArray",
+        "maxTimeMS": "0",
+        "handleDocId": false,
+        "name": "Save diagnosis",
+        "x": 810,
+        "y": 160,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "to_cloud",
+        "type": "link out",
+        "z": "tab_ingest",
+        "name": "to ThingSpeak",
+        "mode": "link",
+        "links": [
+            "from_ingest"
+        ],
+        "x": 535,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "to_ui",
+        "type": "link out",
+        "z": "tab_ingest",
+        "name": "to dashboard",
+        "mode": "link",
+        "links": [
+            "from_ingest_live"
+        ],
+        "x": 535,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "to_ui_diag",
+        "type": "link out",
+        "z": "tab_ingest",
+        "name": "diagnosis to dashboard",
+        "mode": "link",
+        "links": [
+            "from_ingest_diag"
+        ],
+        "x": 775,
+        "y": 210,
+        "wires": []
+    },
+    {
+        "id": "save_alert",
+        "type": "mongodb4",
+        "z": "tab_ingest",
+        "clientNode": "mongo_client",
+        "mode": "collection",
+        "collection": "alerts",
+        "operation": "insertOne",
+        "output": "toArray",
+        "maxTimeMS": "0",
+        "handleDocId": false,
+        "name": "Save alert",
+        "x": 570,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "publish_alert",
+        "type": "mqtt out",
+        "z": "tab_ingest",
+        "name": "Publish alert",
+        "topic": "gridguard/alerts",
+        "qos": "1",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "broker",
+        "x": 570,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "to_ui_alert",
+        "type": "link out",
+        "z": "tab_ingest",
+        "name": "alerts to dashboard",
+        "mode": "link",
+        "links": [
+            "from_ingest_alert"
+        ],
+        "x": 555,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "from_ingest",
+        "type": "link in",
+        "z": "tab_cloud",
+        "name": "from ingest",
+        "links": [
+            "to_cloud"
+        ],
+        "x": 190,
+        "y": 200,
+        "wires": [
+            [
+                "collect"
+            ]
+        ]
+    },
+    {
+        "id": "collect",
+        "type": "function",
+        "z": "tab_cloud",
+        "name": "Collect 20 s window",
+        "func": "const r = msg.payload;\nconst window = flow.get(\"window\") || {sum: {}, count: {}, alerts: 0, flagged: {}};\nwindow.sum[r.meter_id] = (window.sum[r.meter_id] || 0) + r.power_w;\nwindow.count[r.meter_id] = (window.count[r.meter_id] || 0) + 1;\nif (r.flags.length) { window.alerts += 1; window.flagged[r.meter_id] = true; }\nflow.set(\"window\", window);\nreturn null;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 390,
+        "y": 200,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ts_tick",
+        "type": "inject",
+        "z": "tab_cloud",
+        "name": "Every 20 s",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "20",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "2",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 190,
+        "y": 280,
+        "wires": [
+            [
+                "build_ts"
+            ]
+        ]
+    },
+    {
+        "id": "build_ts",
+        "type": "function",
+        "z": "tab_cloud",
+        "name": "Build ThingSpeak update",
+        "func": "const METERS = [\"MTR-00\", \"MTR-01\", \"MTR-02\", \"MTR-03\", \"MTR-04\"];\nconst key = env.get(\"THINGSPEAK_WRITE_KEY\");\nconst w = flow.get(\"window\") || {sum: {}, count: {}, alerts: 0, flagged: {}};\nflow.set(\"window\", {sum: {}, count: {}, alerts: 0, flagged: {}});\nif (!key) {\n    node.status({fill: \"grey\", shape: \"ring\", text: \"no THINGSPEAK_WRITE_KEY set\"});\n    return null;\n}\nif (Object.keys(w.count).length === 0) return null;\nconst fields = {};\nlet total = 0;\nMETERS.forEach((id, i) => {\n    const avg = w.count[id] ? w.sum[id] / w.count[id] : 0;\n    fields[\"field\" + (i + 1)] = Math.round(avg);\n    total += avg;\n});\nfields.field6 = Math.round(total);\nfields.field7 = w.alerts;\nfields.field8 = Object.keys(w.flagged).length;\nconst query = Object.entries(fields).map(([k, v]) => k + \"=\" + v).join(\"&\");\nmsg.url = \"https://api.thingspeak.com/update?api_key=\" + encodeURIComponent(key) + \"&\" + query;\nmsg.fields = fields;\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 410,
+        "y": 280,
+        "wires": [
+            [
+                "ts_request"
+            ]
+        ]
+    },
+    {
+        "id": "ts_request",
+        "type": "http request",
+        "z": "tab_cloud",
+        "name": "ThingSpeak update",
+        "method": "GET",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 650,
+        "y": 280,
+        "wires": [
+            [
+                "ts_result"
+            ]
+        ]
+    },
+    {
+        "id": "ts_result",
+        "type": "function",
+        "z": "tab_cloud",
+        "name": "Check response",
+        "func": "const entry = parseInt(msg.payload, 10);\nif (msg.statusCode === 200 && entry > 0) {\n    node.status({fill: \"green\", shape: \"dot\", text: \"sent entry \" + entry + \", total \" + msg.fields.field6 + \" W\"});\n    return null;\n}\nnode.status({fill: \"red\", shape: \"ring\", text: \"ThingSpeak refused (\" + msg.statusCode + \" / \" + msg.payload + \")\"});\nreturn {payload: {status: msg.statusCode, response: msg.payload}};\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 850,
+        "y": 280,
+        "wires": [
+            [
+                "ts_debug"
+            ]
+        ]
+    },
+    {
+        "id": "ts_debug",
+        "type": "debug",
+        "z": "tab_cloud",
+        "name": "ThingSpeak problems",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1060,
+        "y": 280,
+        "wires": []
+    },
+    {
+        "id": "from_ingest_live",
+        "type": "link in",
+        "z": "tab_ui",
+        "name": "live readings",
+        "links": [
+            "to_ui"
+        ],
+        "x": 340,
+        "y": 80,
+        "wires": [
+            [
+                "live"
+            ]
+        ]
+    },
+    {
+        "id": "live",
+        "type": "function",
+        "z": "tab_ui",
+        "name": "Split for widgets",
+        "func": "const latest = flow.get(\"latest\") || {};\nlatest[msg.payload.meter_id] = msg.payload.power_w;\nflow.set(\"latest\", latest);\nconst total = Object.values(latest).reduce((a, p) => a + p, 0);\nreturn [\n    {topic: msg.payload.meter_id, payload: msg.payload.power_w},\n    {payload: Math.round(total / 100) / 10},\n    {payload: global.get(\"simTime\") || \"\"}\n];\n",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 530,
+        "y": 80,
+        "wires": [
+            [
+                "chart"
+            ],
+            [
+                "gauge"
+            ],
+            [
+                "clock_text"
+            ]
+        ]
+    },
+    {
+        "id": "chart",
+        "type": "ui-chart",
+        "z": "tab_ui",
+        "group": "grp_live",
+        "name": "Power chart",
+        "label": "",
+        "order": 1,
+        "chartType": "line",
+        "category": "topic",
+        "categoryType": "msg",
+        "xAxisLabel": "",
+        "xAxisProperty": "",
+        "xAxisPropertyType": "timestamp",
+        "xAxisType": "time",
+        "xAxisFormat": "",
+        "xAxisFormatType": "auto",
+        "xmin": "",
+        "xmax": "",
+        "yAxisLabel": "W",
+        "yAxisProperty": "payload",
+        "yAxisPropertyType": "msg",
+        "ymin": "",
+        "ymax": "",
+        "bins": 10,
+        "action": "append",
+        "stackSeries": false,
+        "pointShape": "false",
+        "pointRadius": 4,
+        "showLegend": true,
+        "removeOlder": "3",
+        "removeOlderUnit": "60",
+        "removeOlderPoints": "",
+        "colors": [
+            "#2a78d6",
+            "#eb6834",
+            "#1baf7a",
+            "#eda100",
+            "#e87ba4",
+            "#008300",
+            "#6250d6",
+            "#e34948",
+            "#898781"
+        ],
+        "textColor": [
+            "#666666"
+        ],
+        "textColorDefault": true,
+        "gridColor": [
+            "#e5e5e5"
+        ],
+        "gridColorDefault": true,
+        "width": "9",
+        "height": "8",
+        "className": "",
+        "interpolation": "linear",
+        "x": 760,
+        "y": 40,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "gauge",
+        "type": "ui-gauge",
+        "z": "tab_ui",
+        "name": "Total load",
+        "group": "grp_total",
+        "order": 1,
+        "value": "payload",
+        "valueType": "msg",
+        "width": "3",
+        "height": "4",
+        "gtype": "gauge-half",
+        "gstyle": "needle",
+        "title": "Total load",
+        "alwaysShowTitle": true,
+        "floatingTitlePosition": "top-left",
+        "units": "kW",
+        "icon": "",
+        "prefix": "",
+        "suffix": "",
+        "segments": [
+            {
+                "from": "0",
+                "color": "#1baf7a"
+            },
+            {
+                "from": "8",
+                "color": "#eda100"
+            },
+            {
+                "from": "15",
+                "color": "#e34948"
+            }
+        ],
+        "min": "0",
+        "max": "25",
+        "sizeThickness": 16,
+        "sizeGap": 4,
+        "sizeKeyThickness": 8,
+        "styleRounded": true,
+        "styleGlow": false,
+        "className": "",
+        "x": 750,
+        "y": 80,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "clock_text",
+        "type": "ui-text",
+        "z": "tab_ui",
+        "group": "grp_total",
+        "order": 2,
+        "width": "3",
+        "height": "1",
+        "name": "Meter clock",
+        "label": "Meter time",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "style": false,
+        "font": "",
+        "fontSize": 16,
+        "color": "#717171",
+        "wrapText": false,
+        "className": "",
+        "value": "payload",
+        "valueType": "msg",
+        "x": 750,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "meter_pick",
+        "type": "ui-dropdown",
+        "z": "tab_ui",
+        "group": "grp_control",
+        "name": "Pick meter",
+        "label": "Meter",
+        "tooltip": "",
+        "order": 1,
+        "width": "6",
+        "height": "1",
+        "passthru": false,
+        "multiple": false,
+        "chips": false,
+        "clearable": false,
+        "options": [
+            {
+                "label": "MTR-00",
+                "value": "MTR-00",
+                "type": "str"
+            },
+            {
+                "label": "MTR-01",
+                "value": "MTR-01",
+                "type": "str"
+            },
+            {
+                "label": "MTR-02",
+                "value": "MTR-02",
+                "type": "str"
+            },
+            {
+                "label": "MTR-03",
+                "value": "MTR-03",
+                "type": "str"
+            },
+            {
+                "label": "MTR-04",
+                "value": "MTR-04",
+                "type": "str"
+            },
+            {
+                "label": "all meters",
+                "value": "all",
+                "type": "str"
+            }
+        ],
+        "payload": "",
+        "topic": "topic",
+        "topicType": "msg",
+        "className": "",
+        "typeIsComboBox": true,
+        "msgTrigger": "onChange",
+        "x": 350,
+        "y": 200,
+        "wires": [
+            [
+                "remember_meter"
+            ]
+        ]
+    },
+    {
+        "id": "remember_meter",
+        "type": "change",
+        "z": "tab_ui",
+        "name": "Remember meter",
+        "rules": [
+            {
+                "t": "set",
+                "p": "selectedMeter",
+                "pt": "flow",
+                "to": "payload",
+                "tot": "msg"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 550,
+        "y": 200,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "btn_normal",
+        "type": "ui-button",
+        "z": "tab_ui",
+        "group": "grp_control",
+        "name": "Normal",
+        "label": "Normal",
+        "order": 2,
+        "width": "2",
+        "height": "1",
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#1baf7a",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "normal",
+        "payloadType": "str",
+        "topic": "mode",
+        "topicType": "str",
+        "buttonColor": "#1baf7a",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 350,
+        "y": 260,
+        "wires": [
+            [
+                "set_mode"
+            ]
+        ]
+    },
+    {
+        "id": "btn_stuck",
+        "type": "ui-button",
+        "z": "tab_ui",
+        "group": "grp_control",
+        "name": "Stuck",
+        "label": "Stuck",
+        "order": 3,
+        "width": "2",
+        "height": "1",
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#eb6834",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "stuck",
+        "payloadType": "str",
+        "topic": "mode",
+        "topicType": "str",
+        "buttonColor": "#eb6834",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 350,
+        "y": 300,
+        "wires": [
+            [
+                "set_mode"
+            ]
+        ]
+    },
+    {
+        "id": "btn_spike",
+        "type": "ui-button",
+        "z": "tab_ui",
+        "group": "grp_control",
+        "name": "Spikes",
+        "label": "Spikes",
+        "order": 4,
+        "width": "2",
+        "height": "1",
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#eb6834",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "spike",
+        "payloadType": "str",
+        "topic": "mode",
+        "topicType": "str",
+        "buttonColor": "#eb6834",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 350,
+        "y": 340,
+        "wires": [
+            [
+                "set_mode"
+            ]
+        ]
+    },
+    {
+        "id": "btn_reverse",
+        "type": "ui-button",
+        "z": "tab_ui",
+        "group": "grp_control",
+        "name": "Reversed",
+        "label": "Reversed",
+        "order": 5,
+        "width": "2",
+        "height": "1",
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#eb6834",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "reverse",
+        "payloadType": "str",
+        "topic": "mode",
+        "topicType": "str",
+        "buttonColor": "#eb6834",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 350,
+        "y": 380,
+        "wires": [
+            [
+                "set_mode"
+            ]
+        ]
+    },
+    {
+        "id": "btn_ev",
+        "type": "ui-button",
+        "z": "tab_ui",
+        "group": "grp_control",
+        "name": "EV charger",
+        "label": "EV charger",
+        "order": 6,
+        "width": "2",
+        "height": "1",
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#2a78d6",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "ev",
+        "payloadType": "str",
+        "topic": "mode",
+        "topicType": "str",
+        "buttonColor": "#2a78d6",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 350,
+        "y": 420,
+        "wires": [
+            [
+                "set_mode"
+            ]
+        ]
+    },
+    {
+        "id": "btn_solar",
+        "type": "ui-button",
+        "z": "tab_ui",
+        "group": "grp_control",
+        "name": "Solar",
+        "label": "Solar",
+        "order": 7,
+        "width": "2",
+        "height": "1",
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "#2a78d6",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "solar",
+        "payloadType": "str",
+        "topic": "mode",
+        "topicType": "str",
+        "buttonColor": "#2a78d6",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 350,
+        "y": 460,
+        "wires": [
+            [
+                "set_mode"
+            ]
+        ]
+    },
+    {
+        "id": "set_mode",
+        "type": "function",
+        "z": "tab_ui",
+        "name": "Apply to meter",
+        "func": "const meter = flow.get(\"selectedMeter\") || \"MTR-00\";\nconst modes = global.get(\"modes\") || {};\nconst targets = meter === \"all\" ? [\"MTR-00\", \"MTR-01\", \"MTR-02\", \"MTR-03\", \"MTR-04\"] : [meter];\ntargets.forEach(id => { modes[id] = msg.payload; });\nglobal.set(\"modes\", modes);\nnode.status({fill: \"blue\", shape: \"dot\", text: meter + \" -> \" + msg.payload});\nreturn {payload: meter + \" is now: \" + msg.payload};\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 580,
+        "y": 360,
+        "wires": [
+            [
+                "mode_text"
+            ]
+        ]
+    },
+    {
+        "id": "mode_text",
+        "type": "ui-text",
+        "z": "tab_ui",
+        "group": "grp_control",
+        "order": 8,
+        "width": "6",
+        "height": "1",
+        "name": "Last command",
+        "label": "Last command",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "style": false,
+        "font": "",
+        "fontSize": 16,
+        "color": "#717171",
+        "wrapText": false,
+        "className": "",
+        "value": "payload",
+        "valueType": "msg",
+        "x": 790,
+        "y": 360,
+        "wires": []
+    },
+    {
+        "id": "from_ingest_diag",
+        "type": "link in",
+        "z": "tab_ui",
+        "name": "diagnosis",
+        "links": [
+            "to_ui_diag"
+        ],
+        "x": 340,
+        "y": 480,
+        "wires": [
+            [
+                "diag_rows"
+            ]
+        ]
+    },
+    {
+        "id": "diag_rows",
+        "type": "function",
+        "z": "tab_ui",
+        "name": "Latest diagnosis per meter",
+        "func": "const latest = global.get(\"diagnosis\") || {};\nconst modes = global.get(\"modes\") || {};\nmsg.payload = Object.values(latest).sort((a, b) => a.meter_id.localeCompare(b.meter_id)).map(d => ({\n    meter: d.meter_id,\n    \"hour (meter time)\": d.hour_start.slice(11, 16),\n    \"avg W\": d.avg_w,\n    diagnosis: d.diagnosis,\n    reason: d.reason,\n    \"injected event\": modes[d.meter_id] || \"normal\"\n}));\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 560,
+        "y": 480,
+        "wires": [
+            [
+                "diag_table"
+            ]
+        ]
+    },
+    {
+        "id": "diag_table",
+        "type": "ui-table",
+        "z": "tab_ui",
+        "group": "grp_diag",
+        "name": "Diagnosis",
+        "label": "Diagnosis",
+        "order": 1,
+        "width": "0",
+        "height": "0",
+        "maxrows": 0,
+        "passthru": false,
+        "autocols": true,
+        "showSearch": false,
+        "deselect": true,
+        "selectionType": "none",
+        "columns": [],
+        "mobileBreakpoint": "sm",
+        "mobileBreakpointType": "defaults",
+        "action": "replace",
+        "className": "",
+        "x": 790,
+        "y": 480,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "from_ingest_alert",
+        "type": "link in",
+        "z": "tab_ui",
+        "name": "alerts",
+        "links": [
+            "to_ui_alert"
+        ],
+        "x": 340,
+        "y": 540,
+        "wires": [
+            [
+                "alert_rows"
+            ]
+        ]
+    },
+    {
+        "id": "alert_rows",
+        "type": "function",
+        "z": "tab_ui",
+        "name": "Keep last 12 alerts",
+        "func": "const list = flow.get(\"alerts\") || [];\nlist.unshift({meter: msg.payload.meter_id, \"meter time\": msg.payload.ts.slice(11, 16), problem: msg.payload.problem, \"power W\": msg.payload.power_w});\nflow.set(\"alerts\", list.slice(0, 12));\nreturn {payload: flow.get(\"alerts\")};\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 540,
+        "y": 540,
+        "wires": [
+            [
+                "alert_table"
+            ]
+        ]
+    },
+    {
+        "id": "alert_table",
+        "type": "ui-table",
+        "z": "tab_ui",
+        "group": "grp_alerts",
+        "name": "Alerts",
+        "label": "Alerts",
+        "order": 1,
+        "width": "0",
+        "height": "0",
+        "maxrows": 0,
+        "passthru": false,
+        "autocols": true,
+        "showSearch": false,
+        "deselect": true,
+        "selectionType": "none",
+        "columns": [],
+        "mobileBreakpoint": "sm",
+        "mobileBreakpointType": "defaults",
+        "action": "replace",
+        "className": "",
+        "x": 760,
+        "y": 540,
+        "wires": [
+            []
+        ]
+    }
 ]

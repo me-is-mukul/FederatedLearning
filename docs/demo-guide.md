@@ -1,66 +1,57 @@
 # Demo guide (about 10 minutes)
 
-## Before the demo
+## Before class
 
-1. Start MongoDB (it usually runs as a Windows service already).
-2. Terminal 1: `docker compose up -d --build`
-3. Terminal 2: `python gridguard.py meters --start-hour 0`. This starts the meters' clock at midnight, so the reversed-meter alert can fire. Each real second is one meter minute, so night lasts about 4 real minutes.
-4. Terminal 3: `streamlit run app.py`
-5. Training 10 rounds takes about 35 seconds, short enough to do live.
+1. Make sure MongoDB is running.
+2. Terminal: `cd node-red` then `npm start`. Wait for `Connected to broker`, about 20 seconds.
+3. Open http://localhost:1880 (flows) and http://localhost:1880/dashboard in two browser tabs.
+4. Optional: open your ThingSpeak channel in a third tab.
+5. Open both notebooks in VS Code or Jupyter. They already contain their outputs.
 
-## 1. The problem (1 min)
+Start Node-RED about 5 minutes before you present, so the chart has data and the first hourly diagnoses exist. Meter time starts at midnight, so the first 4 minutes are "night", the right time to show a reversed meter.
 
-Show the header of the dashboard.
+## 1. The idea (1 minute)
 
-> "Homes want a shared AI that splits their electricity bill by appliance, without handing over their data. That's federated learning. But when a home sends a weird update, is it an attacker, a broken meter, or did they just buy an EV? Treating all three the same either breaks the model or punishes innocent homes."
+> "Smart meters send readings every minute. Our system collects them with MQTT and Node-RED, stores them in MongoDB and pushes summaries to ThingSpeak. The interesting part: when a meter looks abnormal, we work out *why*. Is the meter broken, or did the family buy an EV or solar panels? Those need opposite responses."
 
-## 2. Explore a home (2 min)
+## 2. Node-RED flows (2 minutes)
 
-Tab **Explore a home**:
+Show the four tabs at http://localhost:1880:
 
-- With event *normal*, point out the coloured areas (fridge, kettle, washing machine) and the black total line. "The AI only ever sees the black line."
-- Switch the event to *fault: reversed meter*, set the day to 4, and show the reading going negative. The verdict says *meter fault*.
-- Switch to *change: EV charger*: a big 7 kW block in the evening, and the verdict says *genuine change*.
-- Open the expander: "These six numbers are all the home shares. The raw data stays at home."
+1. **Smart meters**: the built-in MQTT broker and the simulator publishing every second.
+2. **Ingest, detect, store**: *Check reading* flags bad readings and *Hourly diagnosis* decides between meter fault and genuine change, and both are saved to MongoDB.
+3. **ThingSpeak**: a 20-second summary sent over HTTP.
+4. **Dashboard**: the widgets.
 
-## 3. Train the federation (4 min)
+Point at the node status dots (green: working).
 
-Tab **Train the federation**:
+## 3. Live dashboard (3 minutes)
 
-- Show the table. Homes 1, 2 and 7 attack, 3 and 4 have broken meters, 5 and 6 bought an EV or solar panels.
-- Press **Train** and talk while it runs:
-  - the orange line (FedAvg) shoots up once the attacks start at round 3
-  - the blue line (GridGuard) keeps going down
-  - the grid fills in live: AT attack, FX meter fault, CH real change, SIG bad signature
-- At the end, point to the cards: correct causes, attacks blocked, honest homes excluded.
-- Hover a square in the grid to compare *really is* with *GridGuard says*.
-- Show the trust bars: the attackers' integrity has collapsed, and the faulty meters lost reliability but not integrity.
-- Optional: change the table (for example, make home 0 a scaling attacker from round 2) and train again.
+At http://localhost:1880/dashboard:
 
-## 4. Audit chain (1 min)
+1. Show the live power chart and the total-load gauge.
+2. Pick **MTR-02**, press **Stuck**. The line goes flat and within 10 seconds `stuck` rows appear in *Latest alerts*.
+3. Pick **MTR-00**, press **Spikes**. Spikes appear in the chart and the alert table.
+4. Pick **MTR-04**, press **Solar**. During daytime meter hours the line dips below zero. Within the next meter hour the diagnosis table says *genuine change: exporting in daylight (solar panels?)*.
+5. Show that the stuck meter's diagnosis says *meter fault: reading frozen*. Same "abnormal" behaviour, different cause.
+6. Press **Normal** for each meter (or choose *all meters* → **Normal**).
 
-Tab **Audit chain**:
+## 4. MongoDB and ThingSpeak (1 minute)
 
-- "Every decision is chained with SHA-256 fingerprints."
-- Press **Secretly flip its decision**: the block turns red and tampering is detected.
-- Press **Undo all edits**: the chain is verified again.
+- MongoDB Compass → `gridguard_iot`: show `readings`, `alerts` and `diagnosis` filling up.
+- ThingSpeak channel: the same data as cloud charts, with field 7 and field 8 jumping when you broke a meter.
 
-## 5. Live IoT (2 min)
+## 5. Notebooks (3 minutes)
 
-Tab **Live meters**:
-
-- The chart updates every 3 seconds from MongoDB. The readings travelled meter → MQTT → Node-RED → MongoDB.
-- Click **Stuck**: after about 10 seconds the line goes flat and a `stuck` alert appears.
-- Click **Reversed** within the first 4 minutes: the line flips below zero and `reverse` alerts appear. Node-RED only calls a negative reading "reverse" between midnight and 4 am meter time; in daytime, negative power could just be solar panels.
-- Click **Normal** to reset.
-- Optional: open http://localhost:1880 and show the Node-RED flow.
+- **Notebook 1**, recorded day: scroll through the five panels (reversed meter below zero, flat stuck period, spikes, EV block, solar dip), then the hourly heat map and the diagnosis grid.
+- **Notebook 2**, GridGuard federated learning: show the error chart (FedAvg explodes after the attacks, GridGuard keeps improving), the decision grid and the scorecard (97% causes correct, 100% attacks blocked, 0 honest homes excluded).
 
 ## Likely questions
 
 | Question | Answer |
 |---|---|
-| Why not just reject every odd update? | Homes with broken meters or new EVs are honest. Rejecting them is unfair, and the model would never learn about EVs. |
-| Can an attacker fake the six meter numbers? | They are signed, so they can't be changed in transit. A home can lie about its own numbers, but its update still has to look normal, or it gets caught by size and direction. |
-| What does the signature prove? | That the update was not changed after the home sent it. It doesn't prove the meter is accurate; that's the job of the meter evidence. |
-| Why does GridGuard sometimes have a higher error than FedAvg in a single round? | It ignores the quarantined and rejected homes, so it learns from fewer homes. Over the rounds it stays stable while FedAvg swings wildly. |
-| Where is the cloud? | Runs can be saved to MongoDB and uploaded to AWS S3 from the dashboard. Node-RED and the broker could run on an EC2 server the same way they run in Docker here. |
+| Why a simulator, not real meters? | No real smart meters in the lab. The simulator produces the same MQTT messages a real meter gateway would, so a real meter could replace it without changing the rest of the flow. |
+| Why MQTT? | It is light, works over unreliable links, and many sensors can publish to one broker. That is the standard IoT protocol. |
+| Why both MongoDB and ThingSpeak? | MongoDB keeps every raw reading for analysis. ThingSpeak is a ready-made cloud dashboard and has a strict rate limit (one update per 15 s), so it only gets 20-second summaries. |
+| How is a reversed meter told apart from solar panels? | Solar only exports in daylight. A reversed meter is negative at night too, when solar is impossible. |
+| What does federated learning add? | Homes improve a shared AI model without uploading raw data. Notebook 2 shows that without GridGuard's checks, a few bad homes ruin the model. |
