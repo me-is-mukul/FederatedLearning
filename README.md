@@ -6,20 +6,13 @@ Five homes have smart meters. **Node-RED** collects their readings over **MQTT**
 
 ## Architecture
 
-```
-                 ┌──────────────────────────── Node-RED (node-red/flows.json) ─────────────────────────────┐
-                 │                                                                                         │
- Tab 1           │  5 simulated smart meters ──MQTT──▶ built-in MQTT broker (Aedes, port 1883)               │
- Smart meters    │        ▲                                   │                                            │
-                 │        └── commands (gridguard/control/#)  ▼                                            │
- Tab 2           │                                  Check reading ──▶ MongoDB: readings, alerts           │
- Ingest, detect  │                                        └──▶ Hourly diagnosis ──▶ MongoDB: diagnosis     │
- Tab 3           │                                        └──▶ 20 s summary ──HTTP──▶ ThingSpeak channel   │
- Tab 4           │                                        └──▶ Dashboard 2.0 (charts, gauge, buttons)     │
-                 └─────────────────────────────────────────────────────────────────────────────────────────┘
-                                                   │
-                         Jupyter notebooks ◀───────┘  (read MongoDB and ThingSpeak, draw graphs)
-```
+![GridGuard architecture](docs/images/architecture.png)
+
+1. Five simulated meters publish a reading every second to the MQTT broker inside Node-RED.
+2. *Check reading* flags stuck, spiking, reversed and impossible readings.
+3. Every reading and alert is saved to MongoDB. *Hourly diagnosis* decides between meter fault and real change, and saves that too.
+4. A 20-second summary goes to ThingSpeak, and the dashboard shows everything live. Its buttons can break a meter on purpose.
+5. The Jupyter notebooks read MongoDB and ThingSpeak and draw the graphs.
 
 | Tool | What it does here |
 |---|---|
